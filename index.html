@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Essence Upgrade Calculator</title>
+<style>
+:root{--bg:#0f0e0c;--panel:#1a1814;--line:#2e2a23;--text:#e6dfd0;--muted:#9a917f;--gold:#c8a24a;
+--good:#6fbf73;--bad:#d9785f;--warn:#d8b04a;--scr:#b9a37a;--shr:#d68a4c;--dea:#e05a5a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,sans-serif}
+header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center}
+h1{font-size:18px;margin:0;color:var(--gold);font-weight:600;letter-spacing:.3px}
+label{color:var(--muted);font-size:12px;display:flex;gap:6px;align-items:center}
+select,input,button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--gold)}
+input[type=number]{width:64px}
+main{padding:16px 20px 40px}
+.note{color:var(--muted);font-size:12.5px;max-width:900px;margin:0 0 14px}
+.summary{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-width:170px}
+.card b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.card span{color:var(--muted);font-size:12px}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:1050px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle;white-space:nowrap}
+th{background:var(--panel);color:var(--muted);font-weight:500;font-size:12px;position:sticky;top:0;cursor:pointer;user-select:none}
+th:first-child,td:first-child{text-align:left}
+tr:hover td{background:#17150f}
+.num{font-variant-numeric:tabular-nums}
+.vol{color:var(--muted);font-size:11px;display:block}
+.thin{color:var(--warn)}
+.t-scr{color:var(--scr)}.t-shr{color:var(--shr)}.t-dea{color:var(--dea)}
+.verdict{font-weight:600}
+.v-sell{color:var(--muted)}.v-up{color:var(--good)}
+.gain{font-size:11px;display:block;font-weight:400}
+.type{display:flex;align-items:center;gap:8px;font-weight:500}
+.type img{width:28px;height:28px}
+.qty{width:52px;padding:3px 5px;font-size:12px;margin-top:3px}
+.plan{text-align:left;font-size:12px;color:var(--muted);white-space:normal;min-width:220px}
+.plan b{color:var(--good);font-weight:600}
+.err{color:var(--bad);padding:10px 0}
+tfoot td{font-weight:600;background:var(--panel)}
+h2{font-size:15px;color:var(--gold);font-weight:600;margin:30px 0 6px}
+.controls{display:flex;flex-wrap:wrap;gap:10px 18px;margin-bottom:10px}
+table.narrow{min-width:720px}table.narrow th{cursor:default}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+@media (max-width:700px){header,main{padding-left:16px;padding-right:16px}}
+</style></head><body>
+<header>
+  <h1>Essence Upgrade Calculator</h1>
+  <label>League <select id="league"></select></label>
+  <label>Show in <select id="cur"><option value="c">Chaos</option><option value="d">Divine</option></select></label>
+  <label title="Only recommend upgrading when it beats selling by at least this much">Min gain to upgrade <input id="thresh" type="number" min="0" step="1" value="10">%</label>
+  <label title="Flag prices whose daily trade volume (in chaos) is below this">Thin market below <input id="thin" type="number" min="0" step="50" value="300">c/day</label>
+  <button id="refresh">Refresh prices</button>
+  <span id="status" class="note" style="margin:0"></span>
+</header>
+<main>
+  <p class="note">Vendoring 3 essences of the same type and tier gives 1 of the next tier. For each type this compares selling
+  Screaming/Shrieking as-is against upgrading first (including 9 Screaming &rarr; 1 Deafening). "Per Screaming" values show what one
+  Screaming is worth via each route. Enter how many you have to get a stash plan. Prices: <a href="https://poe.ninja" style="color:var(--gold)">poe.ninja</a> currency exchange.</p>
+  <div class="summary" id="summary"></div>
+  <div id="err" class="err" hidden></div>
+  <div class="wrap"><table>
+    <thead><tr>
+      <th data-sort="name">Essence</th>
+      <th data-sort="scr" class="t-scr">Screaming</th>
+      <th data-sort="shr" class="t-shr">Shrieking</th>
+      <th data-sort="dea" class="t-dea">Deafening</th>
+      <th data-sort="ps1" title="Value of 1 Screaming if sold as Shrieking (Shrieking / 3)">Per Scr &rarr; Shr</th>
+      <th data-sort="ps2" title="Value of 1 Screaming if taken to Deafening (Deafening / 9)">Per Scr &rarr; Dea</th>
+      <th data-sort="gscr">Screaming verdict</th>
+      <th data-sort="gshr">Shrieking verdict</th>
+      <th data-sort="stash" style="text-align:left">Stash plan</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+    <tfoot id="foot"></tfoot>
+  </table></div>
+
+  <h2>Flips: buy low tier, vendor up, sell high tier</h2>
+  <p class="note">Buy 3 (or 9) of a lower tier, vendor them into the next tier up and sell that. Ninja prices are averages,
+  so add a markup for what you'll really pay when buying and a cut for what you'll really get when selling.
+  "Crafts/day" is roughly how many the market's daily volume could support on the thinner side of the trade.</p>
+  <div class="controls">
+    <label>Buy markup <input id="buyPrem" type="number" min="0" step="1" value="10">%</label>
+    <label>Sell discount <input id="sellDisc" type="number" min="0" step="1" value="5">%</label>
+    <label>Sort by <select id="flipSort"><option value="profit">Profit per craft</option><option value="roi">Return %</option><option value="daily">Profit/day (if market allows)</option></select></label>
+    <label><input id="flipAll" type="checkbox" style="width:auto"> Show unprofitable</label>
+  </div>
+  <div class="wrap"><table class="narrow">
+    <thead><tr><th>Flip</th><th>Buy</th><th>Cost</th><th>Sell for</th><th>Profit</th><th>Return</th><th title="Crafts per day the thinner side of the market can absorb">Crafts/day</th><th>Profit/day</th></tr></thead>
+    <tbody id="flips"></tbody>
+  </table></div>
+
+  <h2>Special essences</h2>
+  <p class="note">Insanity, Horror, Delirium, Hysteria and the other special essences only come from corrupting essence monsters
+  with a Vaal Orb or Remnant of Corruption, and they can't be upgraded, so the only choice is when to sell. A falling 7-day trend means sell soon.</p>
+  <div class="wrap"><table class="narrow">
+    <thead><tr><th>Essence</th><th>Price</th><th>In divine</th><th>Daily volume</th><th>7-day change</th></tr></thead>
+    <tbody id="specials"></tbody>
+  </table></div>
+</main>
+<script>
+const TIERS=["screaming","shrieking","deafening"];
+const ICON="https://web.poecdn.com";
+const SHORT={screaming:"Scr",shrieking:"Shr",deafening:"Dea"};
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},
+             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+let data=null, sortKey=store.get("sort","gscr"), sortDir=store.get("dir",-1);
+let qty=store.get("qty",{});
+["thresh","thin","cur","buyPrem","sellDisc","flipSort","flipAll"].forEach(id=>{const el=$(id),box=el.type==="checkbox";
+  const v=store.get(id,null);if(v!=null)box?el.checked=v:el.value=v;
+  el.addEventListener(box?"change":"input",()=>{store.set(id,box?el.checked:el.value);render()})});
+
+function fmt(c){
+  if(c==null||isNaN(c))return "–";
+  if($("cur").value==="d"&&data){const d=c*data.divRate;return d<0.1?d.toFixed(4)+"d":d.toFixed(3)+"d"}
+  return c>=100?c.toFixed(0)+"c":c>=10?c.toFixed(1)+"c":c.toFixed(2)+"c";
+}
+const pct=x=>(x>=0?"+":"")+(x*100).toFixed(0)+"%";
+
+async function loadLeagues(){
+  const r=await fetch("data/leagues.json?t="+Date.now());if(!r.ok)throw new Error("HTTP "+r.status);const ls=await r.json();
+  const saved=store.get("league",null);
+  $("league").innerHTML=ls.map(l=>`<option value="${l.url}">${l.displayName}</option>`).join("");
+  $("league").value=ls.some(l=>l.url===saved)?saved:ls[0].url;
+}
+async function loadPrices(){
+  $("status").textContent="Loading…";$("err").hidden=true;
+  try{
+    const r=await fetch("data/essences/"+encodeURIComponent($("league").value)+".json?t="+Date.now());if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json(); if(d.error)throw new Error(d.error);
+    const items=Object.fromEntries((d.items||[]).map(i=>[i.id,i]));
+    const types={}, specials=[];
+    for(const l of d.lines){
+      if(/^essence-of-/.test(l.id)){
+        specials.push({name:items[l.id]?.name||l.id,price:l.primaryValue,vol:l.volumePrimaryValue||0,
+          img:items[l.id]?.image,change:l.sparkline?.totalChange});
+        continue;
+      }
+      const m=l.id.match(/^(screaming|shrieking|deafening)-essence-of-(.+)$/); if(!m)continue;
+      const t=types[m[2]]??={key:m[2],name:m[2][0].toUpperCase()+m[2].slice(1)};
+      t[m[1]]={price:l.primaryValue,vol:l.volumePrimaryValue||0,img:items[l.id]?.image};
+    }
+    data={types:Object.values(types).filter(t=>TIERS.every(x=>t[x])),specials,divRate:d.core?.rates?.divine||0};
+    $("status").textContent="Prices from "+new Date(d._fetched*1000).toLocaleString([], {dateStyle:"medium",timeStyle:"short"});
+    render();
+  }catch(e){$("err").hidden=false;$("err").textContent="Couldn't load prices: "+e.message;$("status").textContent="";}
+}
+
+// Best realisable value of one essence at each tier, plus where it should end up
+function analyse(t,th){
+  const s=t.screaming.price,h=t.shrieking.price,d=t.deafening.price;
+  const shrUp=d/3, shrBest=shrUp>h*(1+th)?{v:shrUp,to:"deafening"}:{v:h,to:"shrieking"};
+  const viaShr=shrBest.v/3;
+  const scrBest=viaShr>s*(1+th)?{v:viaShr,to:shrBest.to}:{v:s,to:"screaming"};
+  return {s,h,d,ps1:h/3,ps2:d/9,scrBest,shrBest,
+    gscr:Math.max(h/3,d/9)/s-1, gshr:shrUp/h-1};
+}
+// Integer stash plan: upgrade in 3s along the recommended route, sell remainders
+function plan(t,a,q){
+  let n={screaming:q[0]||0,shrieking:q[1]||0,deafening:q[2]||0}, steps=[];
+  const asIs=n.screaming*a.s+n.shrieking*a.h+n.deafening*a.d;
+  if(a.scrBest.to!=="screaming"&&n.screaming>=3){const k=Math.floor(n.screaming/3);
+    steps.push(`Vendor ${k*3} Scr &rarr; ${k} Shr`);n.screaming-=k*3;n.shrieking+=k;}
+  if(a.shrBest.to==="deafening"&&n.shrieking>=3){const k=Math.floor(n.shrieking/3);
+    steps.push(`Vendor ${k*3} Shr &rarr; ${k} Dea`);n.shrieking-=k*3;n.deafening+=k;}
+  const sells=TIERS.map((x,i)=>n[x]?`${n[x]} ${["Scr","Shr","Dea"][i]}`:null).filter(Boolean);
+  const best=n.screaming*a.s+n.shrieking*a.h+n.deafening*a.d;
+  return {asIs,best,steps,sells};
+}
+
+function render(){
+  if(!data)return;
+  const th=(+$("thresh").value||0)/100, thin=+$("thin").value||0;
+  const rows=data.types.map(t=>{const a=analyse(t,th);const q=qty[t.key]||[];const p=plan(t,a,q);
+    return {t,a,q,p,name:t.name,scr:a.s,shr:a.h,dea:a.d,ps1:a.ps1,ps2:a.ps2,gscr:a.gscr,gshr:a.gshr,stash:p.best-p.asIs}});
+  rows.sort((x,y)=>sortKey==="name"?sortDir*x.name.localeCompare(y.name):sortDir*(x[sortKey]-y[sortKey]));
+  const cell=(e,cls,i,key)=>`<td class="num ${cls}">${fmt(e.price)}<span class="vol ${e.vol<thin?"thin":""}"
+      title="Daily volume">${e.vol<thin?"⚠ ":""}${Math.round(e.vol).toLocaleString()}c vol</span>
+      <input class="qty" type="number" min="0" placeholder="qty" data-k="${key}" data-i="${i}" value="${qty[key]?.[i]||""}"></td>`;
+  const tierName={screaming:"Sell",shrieking:"Upgrade → Shrieking",deafening:"Upgrade → Deafening"};
+  const verdict=(best,base,gainText)=>best.to===base?`<td class="verdict v-sell">Sell<span class="gain">${gainText}</span></td>`
+      :`<td class="verdict v-up">${tierName[best.to]}<span class="gain">${gainText}</span></td>`;
+  let tAs=0,tBest=0;
+  $("rows").innerHTML=rows.map(({t,a,p})=>{tAs+=p.asIs;tBest+=p.best;
+    const scrGainBest=a.scrBest.v/a.s-1;
+    const has=p.asIs>0;
+    return `<tr>
+    <td><div class="type">${t.deafening.img?`<img src="${ICON}${t.deafening.img}" alt="" onerror="this.remove()">`:""}${t.name}</div></td>
+    ${cell(t.screaming,"t-scr",0,t.key)}${cell(t.shrieking,"t-shr",1,t.key)}${cell(t.deafening,"t-dea",2,t.key)}
+    <td class="num ${a.ps1>a.s?"v-up":""}">${fmt(a.ps1)}</td>
+    <td class="num ${a.ps2>a.s?"v-up":""}">${fmt(a.ps2)}</td>
+    ${verdict(a.scrBest,"screaming",a.scrBest.to==="screaming"?`best upgrade ${pct(a.gscr)}`:`${pct(scrGainBest)} vs selling`)}
+    ${verdict(a.shrBest,"shrieking",`to Deafening ${pct(a.gshr)}`)}
+    <td class="plan">${has?`${p.steps.length?p.steps.join(", ")+"; ":""}sell ${p.sells.join(", ")||"–"}<br>
+      ${fmt(p.asIs)} &rarr; <b>${fmt(p.best)}</b>${p.best>p.asIs?` (<b>+${fmt(p.best-p.asIs)}</b>)`:""}`:"–"}</td></tr>`}).join("");
+  $("foot").innerHTML=tAs>0?`<tr><td>Stash total</td><td colspan="7"></td><td class="plan">${fmt(tAs)} as-is &rarr; <b>${fmt(tBest)}</b> (+${fmt(tBest-tAs)})</td></tr>`:"";
+  const upScr=rows.filter(r=>r.a.scrBest.to!=="screaming").length, upShr=rows.filter(r=>r.a.shrBest.to==="deafening").length;
+  const top=[...rows].sort((x,y)=>(y.a.scrBest.v/y.a.s)-(x.a.scrBest.v/x.a.s))[0];
+  $("summary").innerHTML=`
+    <div class="card"><span>Screaming worth upgrading</span><b>${upScr} / ${rows.length}</b></div>
+    <div class="card"><span>Shrieking worth upgrading</span><b>${upShr} / ${rows.length}</b></div>
+    <div class="card"><span>Best Screaming upgrade</span><b>${top?top.name+" "+pct(top.a.scrBest.v/top.a.s-1):"–"}</b></div>
+    ${tAs>0?`<div class="card"><span>Stash gain from upgrading</span><b style="color:var(--good)">+${fmt(tBest-tAs)}</b></div>`:""}
+    <div class="card"><span>Divine price</span><b>${data.divRate?(1/data.divRate).toFixed(0)+"c":"–"}</b></div>`;
+  document.querySelectorAll("th[data-sort]").forEach(h=>h.style.color=h.dataset.sort===sortKey?"var(--gold)":"");
+  renderFlips(thin); renderSpecials(thin);
+}
+
+function renderFlips(thin){
+  const buy=1+(+$("buyPrem").value||0)/100, sell=1-(+$("sellDisc").value||0)/100;
+  const routes=[["screaming","shrieking",3],["shrieking","deafening",3],["screaming","deafening",9]];
+  const flips=[];
+  for(const t of data.types)for(const [from,to,n] of routes){
+    const a=t[from],b=t[to]; if(!a.price||!b.price)continue;
+    const cost=n*a.price*buy, rev=b.price*sell, profit=rev-cost;
+    // units/day each side trades ≈ chaos volume / price
+    const daily=Math.min(a.vol/a.price/n, b.vol/b.price);
+    flips.push({t,from,to,n,a,b,cost,rev,profit,roi:profit/cost,daily,perDay:profit*Math.floor(daily),
+      thin:Math.min(a.vol,b.vol)<thin});
+  }
+  const key={profit:"profit",roi:"roi",daily:"perDay"}[$("flipSort").value]||"profit";
+  const shown=flips.filter(f=>$("flipAll").checked||f.profit>0).sort((x,y)=>y[key]-x[key]);
+  $("flips").innerHTML=shown.length?shown.map(f=>`<tr>
+    <td><div class="type">${f.b.img?`<img src="${ICON}${f.b.img}" alt="" onerror="this.remove()">`:""}
+      <span><span class="t-${SHORT[f.from].toLowerCase()}">${f.n}× ${SHORT[f.from]}</span> &rarr;
+      <span class="t-${SHORT[f.to].toLowerCase()}">${SHORT[f.to]}</span> ${f.t.name}</span></div></td>
+    <td class="num">${fmt(f.a.price)} ea</td><td class="num">${fmt(f.cost)}</td><td class="num">${fmt(f.rev)}</td>
+    <td class="num ${f.profit>0?"pos":"neg"}">${f.profit>0?"+":""}${fmt(f.profit)}</td>
+    <td class="num ${f.roi>0?"pos":"neg"}">${pct(f.roi)}</td>
+    <td class="num ${f.thin?"thin":""}">${f.thin?"⚠ ":""}${f.daily<1?f.daily.toFixed(1):Math.floor(f.daily)}</td>
+    <td class="num">${f.perDay>0?fmt(f.perDay):"–"}</td></tr>`).join("")
+    :`<tr><td colspan="8" style="text-align:left;color:var(--muted)">No profitable flips at these markups.</td></tr>`;
+}
+
+function renderSpecials(thin){
+  const rows=[...data.specials].sort((a,b)=>b.price-a.price);
+  $("specials").innerHTML=rows.map(s=>{const div=data.divRate?s.price*data.divRate:null;
+    return `<tr><td><div class="type">${s.img?`<img src="${ICON}${s.img}" alt="" onerror="this.remove()">`:""}${s.name}</div></td>
+    <td class="num">${fmt(s.price)}</td><td class="num">${div!=null?div.toFixed(3)+"d":"–"}</td>
+    <td class="num ${s.vol<thin?"thin":""}">${s.vol<thin?"⚠ ":""}${Math.round(s.vol).toLocaleString()}c</td>
+    <td class="num ${s.change>0?"pos":s.change<0?"neg":""}">${s.change==null?"–":(s.change>0?"+":"")+s.change.toFixed(1)+"%"}</td></tr>`}).join("");
+}
+document.addEventListener("change",e=>{if(e.target.classList.contains("qty")){
+  const k=e.target.dataset.k,i=+e.target.dataset.i;(qty[k]??=[0,0,0])[i]=Math.max(0,parseInt(e.target.value)||0);
+  store.set("qty",qty);render();}});
+document.querySelectorAll("th[data-sort]").forEach(h=>h.onclick=()=>{
+  const k=h.dataset.sort;sortDir=k===sortKey?-sortDir:(k==="name"?1:-1);sortKey=k;store.set("sort",k);store.set("dir",sortDir);render();});
+$("league").onchange=()=>{store.set("league",$("league").value);loadPrices()};
+$("refresh").onclick=loadPrices;
+loadLeagues().then(loadPrices).catch(e=>{$("err").hidden=false;$("err").textContent="Couldn't load price data: "+e.message});
+</script></body></html>
